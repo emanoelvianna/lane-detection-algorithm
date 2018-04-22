@@ -123,6 +123,9 @@ typedef struct node
 } work_node;
 
 //variáveis globais
+int quantidade_de_frames_na_fila;
+bool is_there_any_work;
+bool finished;
 VideoWriter oVideoWriter;
 VideoCapture capture;
 int nframes;
@@ -648,33 +651,131 @@ void stage_three()
  * Pós-condições: 
  * Executa o algoritmo usando processamento paralelo.
  */
-void parallel_processing()
+void parallel_processing() 
 {
-	pthread_mutex_init(&input_work_queue_lock, NULL);
-	pthread_mutex_init(&output_work_queue_lock, NULL);
-
-	pthread_cond_init(&frame_to_process, NULL);
-	pthread_cond_init(&frame_to_send, NULL);
-
+	is_there_any_work = true;
+	finished = false;
+	
 	//quantidade de threads que serão criadas pelo openmp
-	omp_set_num_threads(threads_number + 2);
+	omp_set_num_threads(threads_number);
+
+	omp_lock_t lock_capturar_frame; 
+	omp_init_lock(&lock_capturar_frame);
+
+	omp_lock_t lock_da_fila_de_saida; 
+	omp_init_lock(&lock_da_fila_de_saida);
 
 	//execução com openmp
-	#pragma omp parallel
+	#pragma omp parallel shared(is_there_any_work, finished)
+	while(finished == false)
 	{
-		if(omp_get_thread_num() == 0)
+		work_node* node_aux;	
+		int id_of_my_frame;	
+		Mat image;
+
+		#pragma omp single nowait
 		{
-			stage_one();
+			//####//ATIVA LOCK DA FILA DE SAIDA//####//
+			omp_set_lock(&lock_da_fila_de_saida);
+
+			if(size_output_work_queue > 0)
+			{
+				int id_of_the_head_of_the_queue = get_head_id_from_output_work_queue();
+
+				if(id_of_the_head_of_the_queue == current_frame)
+				{
+					node_aux = remove_from_output_work_queue();
+
+					//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+					omp_unset_lock(&lock_da_fila_de_saida);
+
+					if((node_aux->is_the_last_node) == true)
+					{
+						finished = true;	
+					}
+					else
+					{						
+						//manda o frame para o display
+						send_frame_to_display(&node_aux);
+
+						//printf("FRAME ENVIADO PARA O DISPLAY: %d\n", current_frame);
+
+						current_frame++;
+					}
+				}	
+				else
+				{
+					//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+					omp_unset_lock(&lock_da_fila_de_saida);			
+				}	
+			}
+			else
+			{
+				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+				omp_unset_lock(&lock_da_fila_de_saida);
+			}
+		}	
+
+		if(is_there_any_work == true)
+		{	
+
+			//####//ATIVA LOCK DE CAPTURA de FRAMES//####//
+			omp_set_lock(&lock_capturar_frame);
+
+			capture >> image;
+
+			if (image.empty()) 
+			{
+				id_of_my_frame = nframes;
+				nframes++;
+
+				//####//DESATIVA LOCK DE CAPTURA DE FRAMES//####//
+				omp_unset_lock(&lock_capturar_frame);
+
+				work_node* node_aux =  (work_node*) malloc(sizeof(work_node));	
+				node_aux->frame = NULL;	
+				node_aux->frame_number = id_of_my_frame;	
+				node_aux->next = NULL;			
+				node_aux->is_the_last_node = true;
+
+				//####//ATIVA LOCK DA FILA DE SAIDA//####//
+				omp_set_lock(&lock_da_fila_de_saida);
+
+				add_to_output_work_queue(&node_aux);
+
+				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+				omp_unset_lock(&lock_da_fila_de_saida);
+
+				is_there_any_work = false;
+			}
+			else
+			{
+				id_of_my_frame = nframes;
+				nframes++;
+
+				//####//DESATIVA LOCK DE CAPTURA DE FRAMES//####//
+				omp_unset_lock(&lock_capturar_frame);
+
+				node_aux =  (work_node*) malloc(sizeof(work_node));		
+				node_aux->frame = new cv::Mat;
+				(*(node_aux->frame)) = image.clone();			
+				node_aux->frame_number = id_of_my_frame;	
+				node_aux->next = NULL;
+				node_aux->is_the_last_node = false;
+
+				//####//PROCESSA FRAME//####//
+				process_frame(&node_aux);
+
+				//####//ATIVA LOCK DA FILA DE SAIDA//####//
+				omp_set_lock(&lock_da_fila_de_saida);
+
+				add_to_output_work_queue(&node_aux);
+
+				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+				omp_unset_lock(&lock_da_fila_de_saida);
+			}
 		}
-		else if(omp_get_thread_num() == 1)
-		{
-			stage_three();
-		}
-		else
-		{
-			stage_two();
-		}
-	}	
+	}
 
 	//desaloca os nodos falsos restantes
 	while(size_output_work_queue > 0)
