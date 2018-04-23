@@ -643,8 +643,8 @@ int main(int argc, char* argv[])
 	TT = std::chrono::duration<double>(tend-tstart).count();
 	double TR = nframes/TT; //FRAMES
 
-	cout << "EXECUTION TIME IN SECONDS: " << TT << endl;
-	cout << "FRAMES PER SECOND: " << TR << endl;
+	cout << "EXECUTION_TIME_IN_SECONDS: " << TT << endl;
+	cout << "FRAMES_PER_SECOND: " << TR << endl;
 	printf("CORRECTNESS: %d\n\n", correctness);
 
 	return 0;
