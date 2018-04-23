@@ -7,7 +7,7 @@ lane_detection_pthread:
 	g++ -Wall -g -std=c++1y -O3 lane_detection_pthread.cpp -o run_lane_detection_pthread -lpthread `pkg-config --cflags --libs opencv`
 
 lane_detection_openmp:
-	g++ -Wall -g -std=c++1y -O3 lane_detection_openmp.cpp -o run_lane_detection_openmp -fopenmp -lpthread `pkg-config --cflags --libs opencv`
+	g++ -Wall -g -std=c++1y -O3 lane_detection_openmp.cpp -o run_lane_detection_openmp -fopenmp `pkg-config --cflags --libs opencv`
 
 clean:
 	rm -rf logs -R
