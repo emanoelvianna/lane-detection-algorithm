@@ -524,8 +524,7 @@ void parallel_processing()
 
 		//se ainda existem frames para serem capturados
 		if(is_there_any_work == true)
-		{	
-
+		{
 			//####//ATIVA LOCK DE CAPTURA de FRAMES//####//
 			omp_set_lock(&get_frame_lock);
 
