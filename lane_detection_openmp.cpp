@@ -43,7 +43,7 @@
 
 /**
  * ------------------------------------------------------------------------------------------
- * Versão paralela do algoritmo Lane-Dectection com POSIX Threads.
+ * Estrutura do algoritmo paralelo.
  * 
  * Autor: Gabriell A. de Araujo (hexenoften@gmail.com)
  *
@@ -51,45 +51,36 @@
  *
  * Copyright (C) 2018 Gabriell A. de Araujo, GMAP-PUCRS (http://www.inf.pucrs.br/gmap)
  * ------------------------------------------------------------------------------------------
- * Comando de compilação:
- *
- * g++ -Wall -g -std=c++1y -O3 lane_detection_pthread.cpp -o run_lane_detection_pthread -lpthread `pkg-config --cflags --libs opencv`
+ */
+
+/**
  * ------------------------------------------------------------------------------------------
- * Comando de execução:
+ * PROGRAMAÇÃO PARALELA - TURMA 128 - BACHARELADO EM CIÊNCIA DA COMPUTAÇÃO - PUCRS - PROFESSOR MARCELO NEVES - 2018/1
  *
- * ./run_lane_detection_pthread <video_file_name> <number_of_threads>
+ * Versão paralela do algoritmo Lane-Dectection com OpenMP.
+ * 
+ * Autor: Emanoel Vianna (vianna.emanoel@gmail.com)
+ * Autor: Gabriell A. de Araujo (hexenoften@gmail.com)
+ *
+ * Última modificação: (23/04/2018)
  * ------------------------------------------------------------------------------------------
  * Notas:
  *
- * O algoritmo utiliza a técnica producer-consumer work queue para dividir o trabalho entre as threads;
- * 
- * O algoritmo é divido em 3 estágios;
- * 
- * No primeiro estágio (executado por uma thread), os frames são lidos e mandados para a fila de entrada;
- * 
- * No segundo estágio (executado por n threads), os frames são retirados da fila de entrada, processados e 
- * então enviados para a fila de saída;
+ * O laço while da stream é executado de forma concorrente por todas as threads;
  *
- * No terceiro estágio (executado por uma thread), os frames são retirados da fila de saída e enviados para o display;
- * 
- * A implementação faz uso de estruturas encadeadas (filas encadeadas) para otimizar o custo computacional das diversas
- * funções do algoritmo, bem como otimizar o uso de memória;
- * 
- * A função de adicionar nodos na fila de saída, os insere ordenados pelo seu id, de forma que não se torna necessário
- * ordenar os frames para enviá-los para o display;
+ * A cada iteração, cada thread pega um frame do vídeo, processa este frame e o envia para a fila de saída;
  *
- * A variável booleana is_the_last_node na estrutura do nodo de trabalho, serve para informar o término do stream
- * de frames. 
- * 
- * Quando a thread do primeiro estágio consta que o stream acabou, ela envia  nodos falsos (um nodo para cada thread) para o estágio 
- * seguinte.
- * 
- * Ao ler um nodo falso, as threads do segundo estágio passam o nodo para o terceiro estágio e encerram sua execução.
- * 
- * Ao ler um nodo falso, a thread do terceiro estágio encerra sua execução.
- * 
- * Como a thread do terceiro estágio espera receber apenas um nodo falso para encerrar a sua execução, os demais nodos
- * falsos são desalocados posteriormente, de maneira sequencial.
+ * A cada iteração, uma única thread verifica a fila de saída e caso o frame esperado esteja lá, o envia para o display;
+ *
+ * A estrutura da fila é necessária para que os frames possam ser enviados de maneira ordenada para o display.
+ * ------------------------------------------------------------------------------------------
+ * Comando de compilação:
+ *
+ * g++ -Wall -g -std=c++1y -O3 lane_detection_openmp.cpp -o run_lane_detection_openmp -fopenmp `pkg-config --cflags --libs opencv`
+ * ------------------------------------------------------------------------------------------
+ * Comando de execução:
+ *
+ * ./run_lane_detection_openmp <video_file_name> <number_of_threads>
  * ------------------------------------------------------------------------------------------
  * Comandos de instalação do opencv:
  *
@@ -104,7 +95,6 @@
 #include <iostream>
 #include <vector>
 #include <chrono>
-#include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <omp.h>
@@ -123,7 +113,6 @@ typedef struct node
 } work_node;
 
 //variáveis globais
-int quantidade_de_frames_na_fila;
 bool is_there_any_work;
 bool finished;
 VideoWriter oVideoWriter;
@@ -137,13 +126,10 @@ work_node* output_tail;
 int size_input_work_queue;
 int size_output_work_queue;
 int current_frame;
-pthread_mutex_t input_work_queue_lock;
-pthread_mutex_t output_work_queue_lock;
-pthread_cond_t frame_to_process;
-pthread_cond_t frame_to_send;
-pthread_t thread_stage_one;
-pthread_t* threads_stage_two;
-pthread_t thread_stage_three;
+omp_lock_t input_work_queue_lock;
+omp_lock_t output_work_queue_lock;
+omp_lock_t get_frame_lock;
+int correctness; 
 
 //protótipos de funções
 int get_head_id_from_input_work_queue();
@@ -154,9 +140,6 @@ work_node* remove_from_input_work_queue();
 work_node* remove_from_output_work_queue();
 void process_frame(work_node** node_aux);
 void send_frame_to_display(work_node** node_aux);
-void* stage_one(void* thread_argument);
-void* stage_two(void* thread_argument);
-void* stage_three(void* thread_argument);
 void parallel_processing();
 
 /**
@@ -461,191 +444,16 @@ void send_frame_to_display(work_node** node_aux)
 {
 	cv::Mat* frame_aux = (*node_aux)->frame;
 
-	oVideoWriter.write(*frame_aux);
+	oVideoWriter.write(*frame_aux);	
 
 	//printf("[[[[THE FRAME id=%d HAS SENT TO THE DISPLAY!!!]]]]\n", (*node_aux)->frame_number);
+
+	//correctness calculation
+	correctness = correctness + (*node_aux)->frame_number;
 
 	free(frame_aux);
 	free(*node_aux);
 }  
-
-/**
- * Pós-condições: 
- * -Efetua leitura de todos os frames e os adiciona na fila encadeada de entrada.
- * -Cada vez que é adicionado um nodo de trabalho na fila de entrada, um sinal é
- * enviado para as threads do segundo estágio.
- * -Cada vez que um frame é lido, a variável nframes é incrementada.
- * -A função termina a sua execução quando todos os frames são terminados de serem
- * enviados.
- * -Quando é detectado o término da stream, o estágio deve criar e enviar nodos
- * "falsos" cujo único propósito é informar que a stream acabou, colocando em true
- * o valor da variável is_the_last_node. Devem ser gerados n nodos falsos, sendo n
- * o número de threads.
- */
-void stage_one()
-{
-	while(1)	
-	{
-		Mat image;
-		capture >> image;
-
-		//atualiza o id que será utilizado pelo próximo frame
-		nframes++;
-
-		//se o frame capturado é vazio, envia nodos falsos que sinalizam o término da stream
-		if (image.empty())
-		{
-			for(int i = 0; i < threads_number; i++)
-			{
-				//prepara o nodo de trabalho para ser enviado para a fila de entrada
-				work_node* node_aux =  (work_node*) malloc(sizeof(work_node));	
-				node_aux->frame = NULL;	
-				node_aux->frame_number = nframes;	
-				node_aux->next = NULL;			
-				node_aux->is_the_last_node = true;
-
-				//aplica o lock, adiciona o nodo na fila de entrada, manda o sinal e retira o lock
-				pthread_mutex_lock(&input_work_queue_lock);
-				add_to_input_work_queue(&node_aux);
-				pthread_cond_signal(&frame_to_process);
-				pthread_mutex_unlock(&input_work_queue_lock);
-			}			
-
-			break;
-		}
-		//envia um nodo de trabalho padrão para o processamento do segundo estágio			
-		else
-		{
-			//prepara o nodo de trabalho para ser enviado para a fila de entrada
-			work_node* node_aux =  (work_node*) malloc(sizeof(work_node));		
-			node_aux->frame = new cv::Mat;
-			(*(node_aux->frame)) = image.clone();			
-			node_aux->frame_number = nframes;	
-			node_aux->next = NULL;			
-			node_aux->is_the_last_node = false;			
-
-			//aplica o lock, adiciona o nodo na fila de entrada, manda o sinal e retira o lock
-			pthread_mutex_lock(&input_work_queue_lock);
-			add_to_input_work_queue(&node_aux);
-			pthread_cond_signal(&frame_to_process);
-			pthread_mutex_unlock(&input_work_queue_lock);
-		}	
-	}
-
-	return;
-} 
-
-/**
- * Pós-condições: 
- * -Remove um nodo de trabalho da fila de entrada, o processa, o envia para a fila
- * de saída e envia um sinal para a thread do terceiro estágio. Esse procedimento
- * é executado até que se chegue na condição de encerramento da função.
- * -Caso a fila de entrada esteja vazia e ainda não se tenha chegado na condição
- * de encerramento da função, a thread deve esperar pelo sinal frame_to_process.
- * -A condição de encerramento do segundo estágio é quando todos os frames do
- * vídeo já foram enviados para a fila de entrada e já foram processados no segundo
- * estágio, isso é verificado através do valor da variável is_the_last_node no nodo
- * de trabalho sendo true. Note que apenas nodos falsos apresentam esse valor nessa
- * variável e os mesmos não devem ser processados pela função process_frame.
- */
-void stage_two()
-{
-	while(1)
-	{
-		//aplica lock na fila de entrada para acessar elementos
-		pthread_mutex_lock(&input_work_queue_lock);
-
-		//espera receber sinal se a fila de entrada estiver vazia
-		while(size_input_work_queue == 0)
-		{
-			pthread_cond_wait(&frame_to_process, &input_work_queue_lock);			
-		}
-
-		//remove o nodo da fila de entrada e retira o lock
-		work_node* node_aux = remove_from_input_work_queue();
-		pthread_mutex_unlock(&input_work_queue_lock);
-
-		//se este é um dos nodos que sinaliza o término da stream, envia o nodo para o próximo estágio e encerra a execução
-		if((node_aux->is_the_last_node) == true)
-		{			
-			//aplica o lock, adiciona o nodo na fila de saída, manda o sinal e retira o lock
-			pthread_mutex_lock(&output_work_queue_lock);
-			add_to_output_work_queue(&node_aux);
-			pthread_cond_signal(&frame_to_send);
-			pthread_mutex_unlock(&output_work_queue_lock);
-
-			break;			
-		}
-		//envia um nodo de trabalho padrão para o processamento do terceiro estágio
-		else
-		{
-			//processa o frame, aplica o lock, adiciona o nodo na fila de saída, manda o sinal e retira o lock
-			process_frame(&node_aux);
-			pthread_mutex_lock(&output_work_queue_lock);
-			add_to_output_work_queue(&node_aux);
-			pthread_cond_signal(&frame_to_send);
-			pthread_mutex_unlock(&output_work_queue_lock);
-		}	
-
-
-	}	
-
-	return;
-} 
-
-/**
- * Pós-condições: 
- * -Verifica se o primeiro nodo da fila de saída é o nodo correto para se enviar ao
- * display, se sim, remove o nodo de trabalho da fila e o envia para o display, caso
- * contrário, a thread espera por um sinal. Esse procedimento é executado até que se 
- * chegue na condição de encerramento da função.
- * -A condição de encerramento do terceiro estágio é quando todos os frames do vídeo 
- * já foram enviados para a fila de entrada, já foram processados no segundo estágio
- * e já foram enviados para o display, isso é verificado através do valor da variável 
- * (is_the_last_node) do nodo de trabalho retirado da fila. Se a variável is_the_last_node
- * possui o valor true, isso significa que este é o nodo falso que sinaliza o término da 
- * stream e então a thread pode ser encerrada. Note que o terceiro estágio faz leitura de
- * apenas um nodo falso e encerra a sua execução. Os nodos falsos restantes são desalocados
- * mais adiante no código, quando já não se precisa controles de lock por exemplo, o que
- * economiza operações.
- */
-void stage_three()
-{
-	while(1)
-	{
-		//atualiza o id do frame requerido 
-		current_frame++;
-
-		//aplica lock na fila de saída para acessar elementos
-		pthread_mutex_lock(&output_work_queue_lock);
-
-		//espera receber sinal se a fila de saída estiver vazia
-		while(size_output_work_queue == 0)
-		{
-			pthread_cond_wait(&frame_to_send, &output_work_queue_lock);
-		}
-		//espera receber sinal se o primeiro elemento da fila é diferente do frame necessário
-		while(get_head_id_from_output_work_queue() != current_frame)
-		{
-			pthread_cond_wait(&frame_to_send, &output_work_queue_lock);
-		}
-
-		//remove o nodo da fila e retira o lock
-		work_node* node_aux = remove_from_output_work_queue();		
-		pthread_mutex_unlock(&output_work_queue_lock);
-
-		//se é o nodo que sinaliza o final da stream, cancela a execução da thread
-		if((node_aux->is_the_last_node) == true)
-		{
-			break;			
-		}
-
-		//manda o frame para o display
-		send_frame_to_display(&node_aux);	
-	}
-
-	return;
-} 
 
 /**
  * Pós-condições: 
@@ -656,16 +464,12 @@ void parallel_processing()
 	is_there_any_work = true;
 	finished = false;
 	
-	//quantidade de threads que serão criadas pelo openmp
 	omp_set_num_threads(threads_number);
+	
+	omp_init_lock(&input_work_queue_lock);
+	omp_init_lock(&output_work_queue_lock);
+	omp_init_lock(&get_frame_lock);
 
-	omp_lock_t lock_capturar_frame; 
-	omp_init_lock(&lock_capturar_frame);
-
-	omp_lock_t lock_da_fila_de_saida; 
-	omp_init_lock(&lock_da_fila_de_saida);
-
-	//execução com openmp
 	#pragma omp parallel shared(is_there_any_work, finished)
 	while(finished == false)
 	{
@@ -676,19 +480,22 @@ void parallel_processing()
 		#pragma omp single nowait
 		{
 			//####//ATIVA LOCK DA FILA DE SAIDA//####//
-			omp_set_lock(&lock_da_fila_de_saida);
+			omp_set_lock(&output_work_queue_lock);
 
+			//verifica se existe pelo menos um frame na fila
 			if(size_output_work_queue > 0)
 			{
 				int id_of_the_head_of_the_queue = get_head_id_from_output_work_queue();
 
+				//verifica se este frame é o correto a ser enviado para o display
 				if(id_of_the_head_of_the_queue == current_frame)
 				{
 					node_aux = remove_from_output_work_queue();
 
 					//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-					omp_unset_lock(&lock_da_fila_de_saida);
+					omp_unset_lock(&output_work_queue_lock);
 
+					//se é o nodo que sinaliza o final da stream, o algoritmo deve encerrar
 					if((node_aux->is_the_last_node) == true)
 					{
 						finished = true;	
@@ -696,42 +503,46 @@ void parallel_processing()
 					else
 					{						
 						//manda o frame para o display
-						send_frame_to_display(&node_aux);
+						send_frame_to_display(&node_aux);						
 
-						//printf("FRAME ENVIADO PARA O DISPLAY: %d\n", current_frame);
-
+						//atualiza o id do frame esperado 
 						current_frame++;
 					}
 				}	
 				else
 				{
 					//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-					omp_unset_lock(&lock_da_fila_de_saida);			
+					omp_unset_lock(&output_work_queue_lock);			
 				}	
 			}
 			else
 			{
 				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-				omp_unset_lock(&lock_da_fila_de_saida);
+				omp_unset_lock(&output_work_queue_lock);
 			}
 		}	
 
+		//se ainda existem frames para serem capturados
 		if(is_there_any_work == true)
 		{	
 
 			//####//ATIVA LOCK DE CAPTURA de FRAMES//####//
-			omp_set_lock(&lock_capturar_frame);
+			omp_set_lock(&get_frame_lock);
 
 			capture >> image;
 
+			//se o frame capturado é vazio, envia nodo falso que sinaliza o término da stream
 			if (image.empty()) 
 			{
 				id_of_my_frame = nframes;
+
+				//atualiza o id que será utilizado pelo próximo frame
 				nframes++;
 
 				//####//DESATIVA LOCK DE CAPTURA DE FRAMES//####//
-				omp_unset_lock(&lock_capturar_frame);
+				omp_unset_lock(&get_frame_lock);
 
+				//prepara o nodo de trabalho
 				work_node* node_aux =  (work_node*) malloc(sizeof(work_node));	
 				node_aux->frame = NULL;	
 				node_aux->frame_number = id_of_my_frame;	
@@ -739,23 +550,28 @@ void parallel_processing()
 				node_aux->is_the_last_node = true;
 
 				//####//ATIVA LOCK DA FILA DE SAIDA//####//
-				omp_set_lock(&lock_da_fila_de_saida);
+				omp_set_lock(&output_work_queue_lock);
 
+				//envia o nodo de trabalho para a fila de saída
 				add_to_output_work_queue(&node_aux);
 
 				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-				omp_unset_lock(&lock_da_fila_de_saida);
+				omp_unset_lock(&output_work_queue_lock);
 
 				is_there_any_work = false;
 			}
+			//processa o frame e o adiciona na fila de saída
 			else
 			{
 				id_of_my_frame = nframes;
+
+				//atualiza o id que será utilizado pelo próximo frame
 				nframes++;
 
 				//####//DESATIVA LOCK DE CAPTURA DE FRAMES//####//
-				omp_unset_lock(&lock_capturar_frame);
+				omp_unset_lock(&get_frame_lock);
 
+				//prepara o nodo de trabalho
 				node_aux =  (work_node*) malloc(sizeof(work_node));		
 				node_aux->frame = new cv::Mat;
 				(*(node_aux->frame)) = image.clone();			
@@ -767,12 +583,13 @@ void parallel_processing()
 				process_frame(&node_aux);
 
 				//####//ATIVA LOCK DA FILA DE SAIDA//####//
-				omp_set_lock(&lock_da_fila_de_saida);
+				omp_set_lock(&output_work_queue_lock);
 
+				//envia o nodo de trabalho para a fila de saída
 				add_to_output_work_queue(&node_aux);
 
 				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-				omp_unset_lock(&lock_da_fila_de_saida);
+				omp_unset_lock(&output_work_queue_lock);
 			}
 		}
 	}
@@ -795,8 +612,9 @@ int main(int argc, char* argv[])
 	output_tail = NULL;
 	size_input_work_queue = 0;
 	size_output_work_queue = 0;
-	current_frame = 0;
-	nframes = 0;
+	current_frame = 1;
+	nframes = 1;
+	correctness = 0;
 
 	//disabling internal OpenCV's support for multithreading. Necessary for more clear performance comparison.
 	setNumThreads(0); 
@@ -828,6 +646,7 @@ int main(int argc, char* argv[])
 
 	cout << "EXECUTION TIME IN SECONDS: " << TT << endl;
 	cout << "FRAMES PER SECOND: " << TR << endl;
+	printf("CORRECTNESS: %d\n\n", correctness);
 
 	return 0;
 }
