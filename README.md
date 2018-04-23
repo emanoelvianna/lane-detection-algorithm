@@ -1,4 +1,4 @@
 # lane-detection-algorithm
-implementation of lane detection algorithm parallel programming
+parallel implementation of lane detection algorithm
 
-source code initial: https://github.com/jdorweiler/lane-detection
+original source: https://github.com/jdorweiler/lane-detection
