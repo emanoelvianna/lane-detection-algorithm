@@ -1,4 +1,4 @@
-all: lane_detection_seq lane_detection_pthread lane_detection_openmp
+all: lane_detection_seq lane_detection_pthread lane_detection_openmp collect
 
 lane_detection_seq:
 	g++ -Wall -g -std=c++1y -O3 lane_detection_seq.cpp -o run_lane_detection_seq -lpthread `pkg-config --cflags --libs opencv`
@@ -9,6 +9,9 @@ lane_detection_pthread:
 lane_detection_openmp:
 	g++ -Wall -g -std=c++1y -O3 lane_detection_openmp.cpp -o run_lane_detection_openmp -fopenmp `pkg-config --cflags --libs opencv`
 
+collect:
+	gcc collect.c -o collect
+
 clean:
 	rm -rf logs -R
 	rm -rf run_lane_detection_seq
@@ -17,3 +20,4 @@ clean:
 	rm -rf result_pthread.avi
 	rm -rf run_lane_detection_openmp
 	rm -rf result_openmp.avi
+	rm -rf collect
