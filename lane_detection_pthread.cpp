@@ -140,6 +140,7 @@ pthread_cond_t frame_to_send;
 pthread_t thread_stage_one;
 pthread_t* threads_stage_two;
 pthread_t thread_stage_three;
+int correctness;
 
 //protótipos de funções
 int get_head_id_from_input_work_queue();
@@ -461,6 +462,9 @@ void send_frame_to_display(work_node** node_aux)
 
 	//printf("[[[[THE FRAME id=%d HAS SENT TO THE DISPLAY!!!]]]]\n", (*node_aux)->frame_number);
 
+	//correctness calculation
+	correctness = correctness + (*node_aux)->frame_number;
+
 	free(frame_aux);
 	free(*node_aux);
 }  
@@ -698,6 +702,7 @@ int main(int argc, char* argv[])
 	size_output_work_queue = 0;
 	current_frame = 0;
 	nframes = 0;
+	correctness = 0;
 
 	//disabling internal OpenCV's support for multithreading. Necessary for more clear performance comparison.
 	setNumThreads(0); 
@@ -727,8 +732,9 @@ int main(int argc, char* argv[])
 	TT = std::chrono::duration<double>(tend-tstart).count();
 	double TR = nframes/TT; //FRAMES
 
-	cout << "EXECUTION TIME IN SECONDS: " << TT << endl;
-	cout << "FRAMES PER SECOND: " << TR << endl;
+	cout << "EXECUTION_TIME_IN_SECONDS: " << TT << endl;
+	cout << "FRAMES_PER_SECOND: " << TR << endl;
+	printf("CORRECTNESS: %d\n\n", correctness);
 
 	return 0;
 }
