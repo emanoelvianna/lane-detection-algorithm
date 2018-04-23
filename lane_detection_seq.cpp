@@ -55,11 +55,13 @@ using namespace std;
 
 VideoWriter oVideoWriter;
 int nframes=0;
+int correctness;
 
 int main(int argc, char* argv[]) {
 	string arg = argv[1];
 
-	setNumThreads(0); //Disabling internal OpenCV's support for multithreading. Necessary for more clear performance comparison.
+	//Disabling internal OpenCV's support for multithreading. Necessary for more clear performance comparison.
+	setNumThreads(0); 
 
 	VideoCapture capture; 
 	capture.open(arg);
@@ -72,6 +74,8 @@ int main(int argc, char* argv[]) {
 
 	Size frameSize(static_cast<int>(dWidth), static_cast<int>(dHeight));
 	oVideoWriter.open("result_seq.avi", CV_FOURCC('P','I','M','1'), 20, frameSize, true); //initialize the VideoWriter object 
+
+	correctness = 0;
 
 	auto tstart = std::chrono::high_resolution_clock::now();
 
@@ -100,10 +104,10 @@ int main(int argc, char* argv[]) {
 		threshold(contours,contoursInv,128,255,THRESH_BINARY_INV);
 
 		/* 
-		   Hough tranform for line detection with feedback
-		   Increase by 25 for the next frame if we found some lines.  
-		   This is so we don't miss other lines that may crop up in the next frame
-		   but at the same time we don't want to start the feed back loop from scratch. 
+		Hough tranform for line detection with feedback
+		Increase by 25 for the next frame if we found some lines.  
+		This is so we don't miss other lines that may crop up in the next frame
+		but at the same time we don't want to start the feed back loop from scratch. 
 		 */
 		vector<Vec2f> lines;
 
@@ -175,9 +179,12 @@ int main(int argc, char* argv[]) {
 
 		lines.clear();
 
-
-
 		oVideoWriter.write(image);
+
+		//printf("[[[[THE FRAME id=%d HAS SENT TO THE DISPLAY!!!]]]]\n", nframes);
+
+		//correctness calculation
+		correctness = correctness + nframes;
 	}	
 
 	auto tend = std::chrono::high_resolution_clock::now();
@@ -186,8 +193,9 @@ int main(int argc, char* argv[]) {
 	TT = std::chrono::duration<double>(tend-tstart).count();
 	double TR = nframes/TT; //FRAMES
 
-	cout << "EXECUTION TIME IN SECONDS: " << TT << endl;
-	cout << "FRAMES PER SECOND: " << TR << endl;
+	cout << "EXECUTION_TIME_IN_SECONDS: " << TT << endl;
+	cout << "FRAMES_PER_SECOND: " << TR << endl;
+	printf("CORRECTNESS: %d\n\n", correctness);
 
 	return 0;
 }
