@@ -437,7 +437,7 @@ void send_frame_to_display(work_node** node_aux)
 
 	oVideoWriter.write(*frame_aux);	
 
-	printf("[[[[THE FRAME id=%d HAS SENT TO THE DISPLAY!!!]]]]\n", (*node_aux)->frame_number);
+	//printf("[[[[THE FRAME id=%d HAS SENT TO THE DISPLAY!!!]]]]\n", (*node_aux)->frame_number);
 
 	//correctness calculation
 	correctness = correctness + (*node_aux)->frame_number;
@@ -478,21 +478,25 @@ void stage_one()
 			//atualiza o id que será utilizado pelo próximo frame
 			nframes++;
 
-			//prepara o nodo de trabalho
-			node_aux =  (work_node*) malloc(sizeof(work_node));	
-			node_aux->frame = NULL;	
-			node_aux->frame_number = id_of_my_frame;	
-			node_aux->next = NULL;			
-			node_aux->is_the_last_node = true;
+			for(int i = 0; i < threads_number; i++)
+			{
 
-			//####//ATIVA LOCK DA FILA DE SAIDA//####//
-			omp_set_lock(&input_work_queue_lock);
+				//prepara o nodo de trabalho
+				node_aux =  (work_node*) malloc(sizeof(work_node));	
+				node_aux->frame = NULL;	
+				node_aux->frame_number = id_of_my_frame;	
+				node_aux->next = NULL;			
+				node_aux->is_the_last_node = true;
 
-			//envia o nodo de trabalho para a fila de entrada
-			add_to_input_work_queue(&node_aux);
+				//####//ATIVA LOCK DA FILA DE SAIDA//####//
+				omp_set_lock(&input_work_queue_lock);
 
-			//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-			omp_unset_lock(&input_work_queue_lock);
+				//envia o nodo de trabalho para a fila de entrada
+				add_to_input_work_queue(&node_aux);
+
+				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+				omp_unset_lock(&input_work_queue_lock);
+			}
 
 			break;
 		}
@@ -522,9 +526,7 @@ void stage_one()
 			omp_unset_lock(&input_work_queue_lock);
 		}
 	}
-
-
-	printf("1 -> ENCERREI!!!\n\n\n");
+	
 	return;
 } 
 
@@ -596,7 +598,6 @@ void stage_two()
 		}
 	}
 
-	printf("2 -> ENCERREI!!!\n\n\n");
 	return;
 } 
 
@@ -667,7 +668,6 @@ void stage_three()
 		}	
 	}
 
-	printf("3 -> ENCERREI!!!\n\n\n");
 	return;
 }
 
@@ -741,7 +741,7 @@ int main(int argc, char* argv[])
 
 	Size frameSize(static_cast<int>(dWidth), static_cast<int>(dHeight));
 	//initialize the VideoWriter object 
-	oVideoWriter.open("result_openmp.avi", CV_FOURCC('P','I','M','1'), 20, frameSize, true); 	
+	oVideoWriter.open("result_openmp_v3.avi", CV_FOURCC('P','I','M','1'), 20, frameSize, true); 	
 
 	auto tstart = std::chrono::high_resolution_clock::now();
 
