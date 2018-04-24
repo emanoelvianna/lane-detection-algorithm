@@ -463,132 +463,134 @@ void parallel_processing()
 {
 	is_there_any_work = true;
 	finished = false;
-	
+
 	omp_set_num_threads(threads_number);
-	
+
 	omp_init_lock(&input_work_queue_lock);
 	omp_init_lock(&output_work_queue_lock);
 	omp_init_lock(&get_frame_lock);
 
 	#pragma omp parallel shared(is_there_any_work, finished)
-	while(finished == false)
 	{
-		work_node* node_aux;	
-		int id_of_my_frame;	
-		Mat image;
-
-		#pragma omp single nowait
+		while(finished == false)
 		{
-			//####//ATIVA LOCK DA FILA DE SAIDA//####//
-			omp_set_lock(&output_work_queue_lock);
+			work_node* node_aux;	
+			int id_of_my_frame;	
+			Mat image;
 
-			//verifica se existe pelo menos um frame na fila
-			if(size_output_work_queue > 0)
+			#pragma omp single nowait
 			{
-				int id_of_the_head_of_the_queue = get_head_id_from_output_work_queue();
+				//####//ATIVA LOCK DA FILA DE SAIDA//####//
+				omp_set_lock(&output_work_queue_lock);
 
-				//verifica se este frame é o correto a ser enviado para o display
-				if(id_of_the_head_of_the_queue == current_frame)
+				//verifica se existe pelo menos um frame na fila
+				if(size_output_work_queue > 0)
 				{
-					node_aux = remove_from_output_work_queue();
+					int id_of_the_head_of_the_queue = get_head_id_from_output_work_queue();
+
+					//verifica se este frame é o correto a ser enviado para o display
+					if(id_of_the_head_of_the_queue == current_frame)
+					{
+						node_aux = remove_from_output_work_queue();
+
+						//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+						omp_unset_lock(&output_work_queue_lock);
+
+						//se é o nodo que sinaliza o final da stream, o algoritmo deve encerrar
+						if((node_aux->is_the_last_node) == true)
+						{
+							finished = true;	
+						}
+						else
+						{						
+							//manda o frame para o display
+							send_frame_to_display(&node_aux);						
+
+							//atualiza o id do frame esperado 
+							current_frame++;
+						}
+					}	
+					else
+					{
+						//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+						omp_unset_lock(&output_work_queue_lock);			
+					}	
+				}
+				else
+				{
+					//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+					omp_unset_lock(&output_work_queue_lock);
+				}
+			}	
+
+			//se ainda existem frames para serem capturados
+			if(is_there_any_work == true)
+			{
+				//####//ATIVA LOCK DE CAPTURA de FRAMES//####//
+				omp_set_lock(&get_frame_lock);
+
+				capture >> image;
+
+				//se o frame capturado é vazio, envia nodo falso que sinaliza o término da stream
+				if (image.empty()) 
+				{
+					id_of_my_frame = nframes;
+
+					//atualiza o id que será utilizado pelo próximo frame
+					nframes++;
+
+					//####//DESATIVA LOCK DE CAPTURA DE FRAMES//####//
+					omp_unset_lock(&get_frame_lock);
+
+					//prepara o nodo de trabalho
+					work_node* node_aux =  (work_node*) malloc(sizeof(work_node));	
+					node_aux->frame = NULL;	
+					node_aux->frame_number = id_of_my_frame;	
+					node_aux->next = NULL;			
+					node_aux->is_the_last_node = true;
+
+					//####//ATIVA LOCK DA FILA DE SAIDA//####//
+					omp_set_lock(&output_work_queue_lock);
+
+					//envia o nodo de trabalho para a fila de saída
+					add_to_output_work_queue(&node_aux);
 
 					//####//DESATIVA LOCK DA FILA DE SAIDA//####//
 					omp_unset_lock(&output_work_queue_lock);
 
-					//se é o nodo que sinaliza o final da stream, o algoritmo deve encerrar
-					if((node_aux->is_the_last_node) == true)
-					{
-						finished = true;	
-					}
-					else
-					{						
-						//manda o frame para o display
-						send_frame_to_display(&node_aux);						
-
-						//atualiza o id do frame esperado 
-						current_frame++;
-					}
-				}	
+					is_there_any_work = false;
+				}
+				//processa o frame e o adiciona na fila de saída
 				else
 				{
+					id_of_my_frame = nframes;
+
+					//atualiza o id que será utilizado pelo próximo frame
+					nframes++;
+
+					//####//DESATIVA LOCK DE CAPTURA DE FRAMES//####//
+					omp_unset_lock(&get_frame_lock);
+
+					//prepara o nodo de trabalho
+					node_aux =  (work_node*) malloc(sizeof(work_node));		
+					node_aux->frame = new cv::Mat;
+					(*(node_aux->frame)) = image.clone();			
+					node_aux->frame_number = id_of_my_frame;	
+					node_aux->next = NULL;
+					node_aux->is_the_last_node = false;
+
+					//####//PROCESSA FRAME//####//
+					process_frame(&node_aux);
+
+					//####//ATIVA LOCK DA FILA DE SAIDA//####//
+					omp_set_lock(&output_work_queue_lock);
+
+					//envia o nodo de trabalho para a fila de saída
+					add_to_output_work_queue(&node_aux);
+
 					//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-					omp_unset_lock(&output_work_queue_lock);			
-				}	
-			}
-			else
-			{
-				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-				omp_unset_lock(&output_work_queue_lock);
-			}
-		}	
-
-		//se ainda existem frames para serem capturados
-		if(is_there_any_work == true)
-		{
-			//####//ATIVA LOCK DE CAPTURA de FRAMES//####//
-			omp_set_lock(&get_frame_lock);
-
-			capture >> image;
-
-			//se o frame capturado é vazio, envia nodo falso que sinaliza o término da stream
-			if (image.empty()) 
-			{
-				id_of_my_frame = nframes;
-
-				//atualiza o id que será utilizado pelo próximo frame
-				nframes++;
-
-				//####//DESATIVA LOCK DE CAPTURA DE FRAMES//####//
-				omp_unset_lock(&get_frame_lock);
-
-				//prepara o nodo de trabalho
-				work_node* node_aux =  (work_node*) malloc(sizeof(work_node));	
-				node_aux->frame = NULL;	
-				node_aux->frame_number = id_of_my_frame;	
-				node_aux->next = NULL;			
-				node_aux->is_the_last_node = true;
-
-				//####//ATIVA LOCK DA FILA DE SAIDA//####//
-				omp_set_lock(&output_work_queue_lock);
-
-				//envia o nodo de trabalho para a fila de saída
-				add_to_output_work_queue(&node_aux);
-
-				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-				omp_unset_lock(&output_work_queue_lock);
-
-				is_there_any_work = false;
-			}
-			//processa o frame e o adiciona na fila de saída
-			else
-			{
-				id_of_my_frame = nframes;
-
-				//atualiza o id que será utilizado pelo próximo frame
-				nframes++;
-
-				//####//DESATIVA LOCK DE CAPTURA DE FRAMES//####//
-				omp_unset_lock(&get_frame_lock);
-
-				//prepara o nodo de trabalho
-				node_aux =  (work_node*) malloc(sizeof(work_node));		
-				node_aux->frame = new cv::Mat;
-				(*(node_aux->frame)) = image.clone();			
-				node_aux->frame_number = id_of_my_frame;	
-				node_aux->next = NULL;
-				node_aux->is_the_last_node = false;
-
-				//####//PROCESSA FRAME//####//
-				process_frame(&node_aux);
-
-				//####//ATIVA LOCK DA FILA DE SAIDA//####//
-				omp_set_lock(&output_work_queue_lock);
-
-				//envia o nodo de trabalho para a fila de saída
-				add_to_output_work_queue(&node_aux);
-
-				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-				omp_unset_lock(&output_work_queue_lock);
+					omp_unset_lock(&output_work_queue_lock);
+				}
 			}
 		}
 	}
