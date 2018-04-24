@@ -671,7 +671,7 @@ int main(int argc, char* argv[])
 
 	Size frameSize(static_cast<int>(dWidth), static_cast<int>(dHeight));
 	//initialize the VideoWriter object 
-	oVideoWriter.open("result_openmp.avi", CV_FOURCC('P','I','M','1'), 20, frameSize, true); 	
+	oVideoWriter.open("result_openmp_v2.avi", CV_FOURCC('P','I','M','1'), 20, frameSize, true); 	
 
 	auto tstart = std::chrono::high_resolution_clock::now();
 
