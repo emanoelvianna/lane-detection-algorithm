@@ -70,13 +70,35 @@ do
 done
 
 #######################
-#run openmp
+#run openmp v1
 #######################
 for ((i=1;i<=24;i++))
 do
 	for ((j=0;j<10;j++))
 	do
-		./run_lane_detection_openmp auto.mp4 $i >> logs/log_openmp_cores_$i.txt
+		./run_lane_detection_openmp_v1 auto.mp4 $i >> logs/log_openmp_v1_cores_$i.txt
+	done
+done
+
+#######################
+#run openmp v2
+#######################
+for ((i=1;i<=24;i++))
+do
+	for ((j=0;j<10;j++))
+	do
+		./run_lane_detection_openmp_v2 auto.mp4 $i >> logs/log_openmp_v2_cores_$i.txt
+	done
+done
+
+#######################
+#run openmp v3
+#######################
+for ((i=1;i<=24;i++))
+do
+	for ((j=0;j<10;j++))
+	do
+		./run_lane_detection_openmp_v3 auto.mp4 $i >> logs/log_openmp_v3_cores_$i.txt
 	done
 done
 
