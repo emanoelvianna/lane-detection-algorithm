@@ -62,25 +62,15 @@
  * Autor: Emanoel Vianna (vianna.emanoel@gmail.com)
  * Autor: Gabriell A. de Araujo (hexenoften@gmail.com)
  *
- * Última modificação: (23/04/2018)
- * ------------------------------------------------------------------------------------------
- * Notas:
- *
- * O laço while da stream é executado de forma concorrente por todas as threads;
- *
- * A cada iteração, cada thread pega um frame do vídeo, processa este frame e o envia para a fila de saída;
- *
- * A cada iteração, uma única thread verifica a fila de saída e caso o frame esperado esteja lá, o envia para o display;
- *
- * A estrutura da fila é necessária para que os frames possam ser enviados de maneira ordenada para o display.
+ * Última modificação: (25/04/2018)
  * ------------------------------------------------------------------------------------------
  * Comando de compilação:
  *
- * g++ -Wall -g -std=c++1y -O3 lane_detection_openmp.cpp -o run_lane_detection_openmp -fopenmp `pkg-config --cflags --libs opencv`
+ * g++ -Wall -g -std=c++1y -O3 lane_detection_openmp_v1.cpp -o run_lane_detection_openmp_v1 -fopenmp `pkg-config --cflags --libs opencv`
  * ------------------------------------------------------------------------------------------
  * Comando de execução:
  *
- * ./run_lane_detection_openmp <video_file_name> <number_of_threads>
+ * export OMP_WAIT_POLICY=PASSIVE && ./run_lane_detection_openmp_v1 <video_file_name> <number_of_threads>
  * ------------------------------------------------------------------------------------------
  * Comandos de instalação do opencv:
  *
@@ -457,7 +447,7 @@ void send_frame_to_display(work_node** node_aux)
 
 /**
  * Pós-condições: 
- * Executa o algoritmo usando processamento paralelo.
+ * Executa o algoritmo utilizando processamento paralelo.
  */
 void parallel_processing() 
 {
