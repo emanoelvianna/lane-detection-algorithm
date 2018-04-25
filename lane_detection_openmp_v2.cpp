@@ -43,31 +43,34 @@
 
 /**
  * ------------------------------------------------------------------------------------------
- * Versão paralela do algoritmo Lane-Dectection com OpenMP.
+ * Estrutura do algoritmo paralelo.
  * 
  * Autor: Gabriell A. de Araujo (hexenoften@gmail.com)
  *
- * Última modificação: (24/04/2018)
+ * Última modificação: (23/02/2018)
  *
  * Copyright (C) 2018 Gabriell A. de Araujo, GMAP-PUCRS (http://www.inf.pucrs.br/gmap)
  * ------------------------------------------------------------------------------------------
+ */
+
+/**
+ * ------------------------------------------------------------------------------------------
+ * PROGRAMAÇÃO PARALELA - TURMA 128 - BACHARELADO EM CIÊNCIA DA COMPUTAÇÃO - PUCRS - PROFESSOR MARCELO NEVES - 2018/1
+ *
+ * Versão paralela do algoritmo Lane-Dectection com OpenMP.
+ * 
+ * Autor: Emanoel Vianna (vianna.emanoel@gmail.com)
+ * Autor: Gabriell A. de Araujo (hexenoften@gmail.com)
+ *
+ * Última modificação: (25/04/2018)
+ * ------------------------------------------------------------------------------------------
  * Comando de compilação:
  *
- * g++ -Wall -g -std=c++1y -O3 lane_detection_openmp.cpp -o run_lane_detection_openmp -fopenmp `pkg-config --cflags --libs opencv`
+ * g++ -Wall -g -std=c++1y -O3 lane_detection_openmp_v2.cpp -o run_lane_detection_openmp_v2 -fopenmp `pkg-config --cflags --libs opencv`
  * ------------------------------------------------------------------------------------------
  * Comando de execução:
  *
- * export OMP_WAIT_POLICY=PASSIVE && ./run_lane_detection_openmp <video_file_name> <number_of_threads>
- * ------------------------------------------------------------------------------------------
- * Notas:
- *
- * O laço while da stream é executado de forma concorrente por todas as threads;
- *
- * A cada iteração, cada thread pega um frame do vídeo, processa este frame e o envia para a fila de saída;
- *
- * A cada iteração, uma única thread verifica a fila de saída e caso o frame esperado esteja lá, o envia para o display;
- *
- * A estrutura da fila é necessária para que os frames possam ser enviados de maneira ordenada para o display.
+ * export OMP_WAIT_POLICY=PASSIVE && ./run_lane_detection_openmp_v2 <video_file_name> <number_of_threads>
  * ------------------------------------------------------------------------------------------
  * Comandos de instalação do opencv:
  *
@@ -445,7 +448,7 @@ void send_frame_to_display(work_node** node_aux)
 
 /**
  * Pós-condições: 
- * Executa o algoritmo usando processamento paralelo.
+ * Executa o algoritmo utilizando processamento paralelo.
  */
 void parallel_processing() 
 {
@@ -453,7 +456,7 @@ void parallel_processing()
 	is_there_any_work = true;
 	finished = false;
 
-	omp_set_num_threads(threads_number+1);
+	omp_set_num_threads(threads_number + 1);
 
 	omp_init_lock(&input_work_queue_lock);
 	omp_init_lock(&output_work_queue_lock);
@@ -492,18 +495,18 @@ void parallel_processing()
 						node_aux->next = NULL;			
 						node_aux->is_the_last_node = true;
 
-						//####//ATIVA LOCK DA FILA DE SAIDA//####//
+						//####//ATIVA LOCK DA FILA DE ENTRADA//####//
 						omp_set_lock(&input_work_queue_lock);
 
 						//envia o nodo de trabalho para a fila de entrada
 						add_to_input_work_queue(&node_aux);
 
-						//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+						//####//DESATIVA LOCK DA FILA DE ENTRADA//####//
 						omp_unset_lock(&input_work_queue_lock);
 
 						is_there_any_frame = false;
 					}
-					//processa o frame e o adiciona na fila de saída
+					//envia nodo padrão para a fila de entrada
 					else
 					{
 						id_of_my_frame = nframes;
@@ -519,13 +522,13 @@ void parallel_processing()
 						node_aux->next = NULL;
 						node_aux->is_the_last_node = false;
 
-						//####//ATIVA LOCK DA FILA DE SAIDA//####//
+						//####//ATIVA LOCK DA FILA DE ENTRADA//####//
 						omp_set_lock(&input_work_queue_lock);
 
 						//envia o nodo de trabalho para a fila de entrada
 						add_to_input_work_queue(&node_aux);
 
-						//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+						//####//DESATIVA LOCK DA FILA DE ENTRADA//####//
 						omp_unset_lock(&input_work_queue_lock);
 					}
 				}
@@ -560,7 +563,7 @@ void parallel_processing()
 
 						is_there_any_work = false;			
 					}
-					//envia um nodo de trabalho padrão para o processamento do terceiro estágio
+					//envia um nodo de trabalho padrão para o processamento do terceiro bloco
 					else
 					{
 						//####//PROCESSA FRAME//####//
