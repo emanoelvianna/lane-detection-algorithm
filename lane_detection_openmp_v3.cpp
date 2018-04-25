@@ -43,13 +43,26 @@
 
 /**
  * ------------------------------------------------------------------------------------------
- * Versão paralela do algoritmo Lane-Dectection com OpenMP.
+ * Estrutura do algoritmo paralelo.
  * 
  * Autor: Gabriell A. de Araujo (hexenoften@gmail.com)
  *
- * Última modificação: (24/04/2018)
+ * Última modificação: (23/02/2018)
  *
  * Copyright (C) 2018 Gabriell A. de Araujo, GMAP-PUCRS (http://www.inf.pucrs.br/gmap)
+ * ------------------------------------------------------------------------------------------
+ */
+
+/**
+ * ------------------------------------------------------------------------------------------
+ * PROGRAMAÇÃO PARALELA - TURMA 128 - BACHARELADO EM CIÊNCIA DA COMPUTAÇÃO - PUCRS - PROFESSOR MARCELO NEVES - 2018/1
+ *
+ * Versão paralela do algoritmo Lane-Dectection com OpenMP.
+ * 
+ * Autor: Emanoel Vianna (vianna.emanoel@gmail.com)
+ * Autor: Gabriell A. de Araujo (hexenoften@gmail.com)
+ *
+ * Última modificação: (25/04/2018)
  * ------------------------------------------------------------------------------------------
  * Comando de compilação:
  *
@@ -58,16 +71,6 @@
  * Comando de execução:
  *
  * export OMP_WAIT_POLICY=PASSIVE && ./run_lane_detection_openmp_v3 <video_file_name> <number_of_threads>
- * ------------------------------------------------------------------------------------------
- * Notas:
- *
- * O laço while da stream é executado de forma concorrente por todas as threads;
- *
- * A cada iteração, cada thread pega um frame do vídeo, processa este frame e o envia para a fila de saída;
- *
- * A cada iteração, uma única thread verifica a fila de saída e caso o frame esperado esteja lá, o envia para o display;
- *
- * A estrutura da fila é necessária para que os frames possam ser enviados de maneira ordenada para o display.
  * ------------------------------------------------------------------------------------------
  * Comandos de instalação do opencv:
  *
@@ -100,9 +103,6 @@ typedef struct node
 } work_node;
 
 //variáveis globais
-bool is_there_any_frame;
-bool is_there_any_work;
-bool finished;
 VideoWriter oVideoWriter;
 VideoCapture capture;
 int nframes;
@@ -128,9 +128,8 @@ work_node* remove_from_input_work_queue();
 work_node* remove_from_output_work_queue();
 void process_frame(work_node** node_aux);
 void send_frame_to_display(work_node** node_aux);
-void stage_one();
-void stage_two();
-void stage_three();
+void block_one_block_three();
+void block_two();
 void parallel_processing();
 
 /**
@@ -448,182 +447,88 @@ void send_frame_to_display(work_node** node_aux)
 
 /**
  * Pós-condições: 
- * -Efetua leitura de todos os frames e os adiciona na fila encadeada de entrada.
- * -Cada vez que é adicionado um nodo de trabalho na fila de entrada, um sinal é
- * enviado para as threads do segundo estágio.
- * -Cada vez que um frame é lido, a variável nframes é incrementada.
- * -A função termina a sua execução quando todos os frames são terminados de serem
- * enviados.
- * -Quando é detectado o término da stream, o estágio deve criar e enviar nodos
- * "falsos" cujo único propósito é informar que a stream acabou, colocando em true
- * o valor da variável is_the_last_node. Devem ser gerados n nodos falsos, sendo n
- * o número de threads.
+ * -Executa block one e também block three.
  */
-void stage_one()
+void block_one_block_three()
 {
+	bool is_there_any_frame = true;
+
 	work_node* node_aux;	
 	int id_of_my_frame;	
-	Mat image;
+	Mat image;	
 
-	//se ainda existem frames para serem capturados
 	while(1)
 	{
-		capture >> image;
+		///////////////////////
+		//####//BLOCK ONE//####
+		///////////////////////
 
-		//se o frame capturado é vazio, envia nodo falso que sinaliza o término da stream
-		if (image.empty()) 
+		//se ainda existem frames para serem capturados
+		if(is_there_any_frame == true)
 		{
-			id_of_my_frame = nframes;
+			capture >> image;
 
-			//atualiza o id que será utilizado pelo próximo frame
-			nframes++;
-
-			for(int i = 0; i < threads_number; i++)
+			//se o frame capturado é vazio, envia nodo falso que sinaliza o término da stream
+			if (image.empty()) 
 			{
+				id_of_my_frame = nframes;
+
+				//atualiza o id que será utilizado pelo próximo frame
+				nframes++;
+
+				for(int i = 0; i < threads_number; i++)
+				{
+
+					//prepara o nodo de trabalho
+					node_aux =  (work_node*) malloc(sizeof(work_node));	
+					node_aux->frame = NULL;	
+					node_aux->frame_number = id_of_my_frame;	
+					node_aux->next = NULL;			
+					node_aux->is_the_last_node = true;
+
+					//####//ATIVA LOCK DA FILA DE ENTRADA//####//
+					omp_set_lock(&input_work_queue_lock);
+
+					//envia o nodo de trabalho para a fila de entrada
+					add_to_input_work_queue(&node_aux);
+
+					//####//DESATIVA LOCK DA FILA DE ENTRADA//####//
+					omp_unset_lock(&input_work_queue_lock);
+				}
+
+				is_there_any_frame = false;
+			}
+			//envia nodo padrão para a fila de entrada
+			else
+			{
+				id_of_my_frame = nframes;
+
+				//atualiza o id que será utilizado pelo próximo frame
+				nframes++;
 
 				//prepara o nodo de trabalho
-				node_aux =  (work_node*) malloc(sizeof(work_node));	
-				node_aux->frame = NULL;	
+				node_aux =  (work_node*) malloc(sizeof(work_node));		
+				node_aux->frame = new cv::Mat;
+				(*(node_aux->frame)) = image.clone();			
 				node_aux->frame_number = id_of_my_frame;	
-				node_aux->next = NULL;			
-				node_aux->is_the_last_node = true;
+				node_aux->next = NULL;
+				node_aux->is_the_last_node = false;
 
-				//####//ATIVA LOCK DA FILA DE SAIDA//####//
+				//####//ATIVA LOCK DA FILA DE ENTRADA//####//
 				omp_set_lock(&input_work_queue_lock);
 
 				//envia o nodo de trabalho para a fila de entrada
 				add_to_input_work_queue(&node_aux);
 
-				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+				//####//DESATIVA LOCK DA FILA DE ENTRADA//####//
 				omp_unset_lock(&input_work_queue_lock);
 			}
-
-			break;
 		}
-		//processa o frame e o adiciona na fila de saída
-		else
-		{
-			id_of_my_frame = nframes;
 
-			//atualiza o id que será utilizado pelo próximo frame
-			nframes++;
+		/////////////////////////
+		//####//BLOCK THREE//####
+		/////////////////////////
 
-			//prepara o nodo de trabalho
-			node_aux =  (work_node*) malloc(sizeof(work_node));		
-			node_aux->frame = new cv::Mat;
-			(*(node_aux->frame)) = image.clone();			
-			node_aux->frame_number = id_of_my_frame;	
-			node_aux->next = NULL;
-			node_aux->is_the_last_node = false;
-
-			//####//ATIVA LOCK DA FILA DE SAIDA//####//
-			omp_set_lock(&input_work_queue_lock);
-
-			//envia o nodo de trabalho para a fila de entrada
-			add_to_input_work_queue(&node_aux);
-
-			//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-			omp_unset_lock(&input_work_queue_lock);
-		}
-	}
-	
-	return;
-} 
-
-/**
- * Pós-condições: 
- * -Remove um nodo de trabalho da fila de entrada, o processa, o envia para a fila
- * de saída e envia um sinal para a thread do terceiro estágio. Esse procedimento
- * é executado até que se chegue na condição de encerramento da função.
- * -Caso a fila de entrada esteja vazia e ainda não se tenha chegado na condição
- * de encerramento da função, a thread deve esperar pelo sinal frame_to_process.
- * -A condição de encerramento do segundo estágio é quando todos os frames do
- * vídeo já foram enviados para a fila de entrada e já foram processados no segundo
- * estágio, isso é verificado através do valor da variável is_the_last_node no nodo
- * de trabalho sendo true. Note que apenas nodos falsos apresentam esse valor nessa
- * variável e os mesmos não devem ser processados pela função process_frame.
- */
-void stage_two()
-{
-	work_node* node_aux;
-	Mat image;
-
-	while(1)
-	{
-		//####//ATIVA LOCK DA FILA DE ENTRADA//####//
-		omp_set_lock(&input_work_queue_lock);
-
-		if(size_input_work_queue > 0)
-		{
-			//remove o nodo da fila de entrada
-			node_aux = remove_from_input_work_queue();
-
-			//####//DESATIVA LOCK DA FILA DE ENTRADA//####//
-			omp_unset_lock(&input_work_queue_lock);
-
-			//se este é um dos nodos que sinaliza o término da stream, envia o nodo para o próximo estágio e encerra a execução
-			if((node_aux->is_the_last_node) == true)
-			{			
-				//####//ATIVA LOCK DA FILA DE SAIDA//####//
-				omp_set_lock(&output_work_queue_lock);
-
-				//envia nodo para a fila do terceiro estágio
-				add_to_output_work_queue(&node_aux);
-
-				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-				omp_unset_lock(&output_work_queue_lock);
-
-				break;			
-			}
-			//envia um nodo de trabalho padrão para o processamento do terceiro estágio
-			else
-			{
-				//####//PROCESSA FRAME//####//
-				process_frame(&node_aux);
-
-				//####//ATIVA LOCK DA FILA DE SAIDA//####//
-				omp_set_lock(&output_work_queue_lock);
-
-				//envia nodo para fila do terceiro estágio
-				add_to_output_work_queue(&node_aux);
-
-				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
-				omp_unset_lock(&output_work_queue_lock);
-			}
-		}
-		else
-		{
-			//####//DESATIVA LOCK DA FILA DE ENTRADA//####//
-			omp_unset_lock(&input_work_queue_lock);
-		}
-	}
-
-	return;
-} 
-
-/**
- * Pós-condições: 
- * -Verifica se o primeiro nodo da fila de saída é o nodo correto para se enviar ao
- * display, se sim, remove o nodo de trabalho da fila e o envia para o display, caso
- * contrário, a thread espera por um sinal. Esse procedimento é executado até que se 
- * chegue na condição de encerramento da função.
- * -A condição de encerramento do terceiro estágio é quando todos os frames do vídeo 
- * já foram enviados para a fila de entrada, já foram processados no segundo estágio
- * e já foram enviados para o display, isso é verificado através do valor da variável 
- * (is_the_last_node) do nodo de trabalho retirado da fila. Se a variável is_the_last_node
- * possui o valor true, isso significa que este é o nodo falso que sinaliza o término da 
- * stream e então a thread pode ser encerrada. Note que o terceiro estágio faz leitura de
- * apenas um nodo falso e encerra a sua execução. Os nodos falsos restantes são desalocados
- * mais adiante no código, quando já não se precisa controles de lock por exemplo, o que
- * economiza operações.
- */
-void stage_three()
-{
-	work_node* node_aux;	
-	Mat image;
-
-	while(1)
-	{
 		//####//ATIVA LOCK DA FILA DE SAIDA//####//
 		omp_set_lock(&output_work_queue_lock);
 
@@ -669,19 +574,81 @@ void stage_three()
 	}
 
 	return;
-}
+} 
 
 /**
  * Pós-condições: 
- * Executa o algoritmo usando processamento paralelo.
+ * -Executa block two.
+ */
+void block_two()
+{
+	work_node* node_aux;
+	Mat image;
+	
+	while(1)
+	{
+		///////////////////////
+		//####//BLOCK TWO//####
+		///////////////////////
+
+		//####//ATIVA LOCK DA FILA DE ENTRADA//####//
+		omp_set_lock(&input_work_queue_lock);
+
+		if(size_input_work_queue > 0)
+		{
+			//remove o nodo da fila de entrada
+			node_aux = remove_from_input_work_queue();
+
+			//####//DESATIVA LOCK DA FILA DE ENTRADA//####//
+			omp_unset_lock(&input_work_queue_lock);
+
+			//se este é um dos nodos que sinaliza o término da stream, envia o nodo para o próximo estágio e encerra a execução
+			if((node_aux->is_the_last_node) == true)
+			{			
+				//####//ATIVA LOCK DA FILA DE SAIDA//####//
+				omp_set_lock(&output_work_queue_lock);
+
+				//envia nodo para a fila do terceiro estágio
+				add_to_output_work_queue(&node_aux);
+
+				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+				omp_unset_lock(&output_work_queue_lock);
+
+				break;			
+			}
+			//envia um nodo de trabalho padrão para o processamento do terceiro bloco
+			else
+			{
+				//####//PROCESSA FRAME//####//
+				process_frame(&node_aux);
+
+				//####//ATIVA LOCK DA FILA DE SAIDA//####//
+				omp_set_lock(&output_work_queue_lock);
+
+				//envia nodo para fila do terceiro estágio
+				add_to_output_work_queue(&node_aux);
+
+				//####//DESATIVA LOCK DA FILA DE SAIDA//####//
+				omp_unset_lock(&output_work_queue_lock);
+			}
+		}
+		else
+		{
+			//####//DESATIVA LOCK DA FILA DE ENTRADA//####//
+			omp_unset_lock(&input_work_queue_lock);
+		}
+	}
+
+	return;
+} 
+
+/**
+ * Pós-condições: 
+ * Executa o algoritmo utilizando processamento paralelo.
  */
 void parallel_processing() 
 {
-	is_there_any_frame = true;
-	is_there_any_work = true;
-	finished = false;
-
-	omp_set_num_threads(threads_number+2);
+	omp_set_num_threads(threads_number + 1);
 
 	omp_init_lock(&input_work_queue_lock);
 	omp_init_lock(&output_work_queue_lock);
@@ -691,15 +658,11 @@ void parallel_processing()
 	{
 		if(omp_get_thread_num() == 0)
 		{
-			stage_one();
-		} 
-		else if( (omp_get_thread_num() != 0) && (omp_get_thread_num() != 1))
-		{
-			stage_two();
+			block_one_block_three();
 		} 
 		else
 		{
-			stage_three();
+			block_two();
 		} 
 	}
 
